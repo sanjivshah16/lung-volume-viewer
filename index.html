@@ -2,69 +2,123 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Lung Volume 3D Viewer</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #0f0f23; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+body { background: #0f0f23; overflow: hidden; font-family: system-ui, -apple-system, sans-serif;
+  touch-action: none; }
 
-#overlay { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; z-index: 10; }
-#title { text-align: center; padding: 14px 14px 6px; color: rgba(255,255,255,.85);
-  font-size: 16px; font-weight: 600; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
-#state-label { text-align: center; color: rgba(255,255,255,.6); font-size: 13px; }
-#volume-info { text-align: center; color: rgba(255,255,255,.4); font-size: 11px; padding-top: 4px; }
+/* Header */
+#header { position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  pointer-events: none; padding: 12px 16px 0; }
+#header > * { pointer-events: auto; }
 
-#scan-selector { position: absolute; top: 14px; left: 16px; z-index: 10;
-  display: flex; gap: 6px; }
-#scan-selector button { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15);
-  background: rgba(255,255,255,.08); color: rgba(255,255,255,.6);
-  font-size: 12px; cursor: pointer; transition: all .2s;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-#scan-selector button:hover { background: rgba(255,255,255,.15); color: #fff; }
-#scan-selector button.active { background: rgba(123,31,162,.4); color: #fff;
-  border-color: rgba(123,31,162,.6); }
+#title { text-align: center; color: rgba(255,255,255,.85);
+  font-size: 16px; font-weight: 600; text-shadow: 0 2px 8px rgba(0,0,0,.6);
+  pointer-events: none; }
 
+/* Scan selector */
+#scan-selector { position: absolute; top: 12px; left: 16px;
+  display: flex; gap: 5px; }
+#scan-selector button { padding: 5px 12px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.55); font-size: 12px; cursor: pointer;
+  transition: all .2s; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+#scan-selector button:hover { background: rgba(255,255,255,.12); color: #fff; }
+#scan-selector button.active { background: rgba(123,31,162,.35); color: #fff;
+  border-color: rgba(123,31,162,.5); }
+
+/* Mode toggle */
+#mode-toggle { display: flex; justify-content: center; gap: 0; margin: 8px auto 0;
+  width: fit-content; border-radius: 8px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.12); }
+#mode-toggle button { padding: 5px 16px; border: none;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.55);
+  font-size: 11px; cursor: pointer; transition: all .2s; white-space: nowrap; }
+#mode-toggle button:hover { background: rgba(255,255,255,.12); color: #fff; }
+#mode-toggle button.active { background: rgba(123,31,162,.35); color: #fff; }
+
+/* State + volume info */
+#state-label { text-align: center; color: rgba(255,255,255,.55); font-size: 12px;
+  margin-top: 4px; pointer-events: none; }
+#volume-info { text-align: center; color: rgba(255,255,255,.35); font-size: 10px;
+  margin-top: 2px; pointer-events: none; }
+
+/* Playback controls */
 #controls { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px;
-  background: rgba(255,255,255,.08); backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px); padding: 8px 18px; border-radius: 20px; z-index: 10; }
-#controls button { width: 32px; height: 32px; border-radius: 50%; border: none;
-  background: rgba(255,255,255,.15); color: #fff; font-size: 14px; cursor: pointer;
-  transition: background .2s; }
-#controls button:hover { background: rgba(255,255,255,.25); }
+  display: flex; align-items: center; gap: 10px; z-index: 10;
+  background: rgba(255,255,255,.06); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px); padding: 7px 16px; border-radius: 20px; }
+#controls button { width: 36px; height: 36px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.12); color: #fff; font-size: 15px; cursor: pointer;
+  transition: background .2s; display: flex; align-items: center; justify-content: center; }
+#controls button:hover { background: rgba(255,255,255,.22); }
 #controls input[type=range] { width: 80px; accent-color: #7B1FA2; }
-#controls label { color: rgba(255,255,255,.6); font-size: 11px; white-space: nowrap; }
+#controls label { color: rgba(255,255,255,.5); font-size: 11px; white-space: nowrap; }
 
-#views { position: absolute; top: 50%; right: 16px; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 6px; z-index: 10; }
-#views button { padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1);
-  background: rgba(255,255,255,.08); color: rgba(255,255,255,.6);
-  font-size: 11px; cursor: pointer; transition: all .2s; white-space: nowrap;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-#views button:hover { background: rgba(255,255,255,.18); color: #fff; }
-#views .view-group-label { color: rgba(255,255,255,.35); font-size: 9px;
-  text-transform: uppercase; letter-spacing: 1px; text-align: center; padding-top: 4px; }
+/* View buttons */
+#views { position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 5px; z-index: 10; }
+#views button { padding: 6px 12px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.5); font-size: 11px; cursor: pointer;
+  transition: all .2s; white-space: nowrap;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+#views button:hover { background: rgba(255,255,255,.15); color: #fff; }
+.view-group-label { color: rgba(255,255,255,.3); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 1px; text-align: center; }
 
-#hint { position: absolute; bottom: 16px; right: 16px; color: rgba(255,255,255,.3);
+/* Hint + progress */
+#hint { position: absolute; bottom: 16px; right: 16px; color: rgba(255,255,255,.25);
   font-size: 10px; pointer-events: none; z-index: 10; }
 #pbar { position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
-  background: rgba(255,255,255,.06); z-index: 10; }
+  background: rgba(255,255,255,.04); z-index: 10; }
 #pfill { height: 100%; width: 0; transition: width .08s linear; }
 
+/* Loading overlay */
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  color: rgba(255,255,255,.7); font-size: 14px; z-index: 20; text-align: center; }
-#loading .spinner { display: inline-block; width: 24px; height: 24px;
-  border: 3px solid rgba(255,255,255,.2); border-top-color: #7B1FA2;
-  border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 10px; }
+  color: rgba(255,255,255,.6); font-size: 13px; z-index: 20; text-align: center;
+  display: none; }
+.spinner { display: inline-block; width: 22px; height: 22px;
+  border: 2px solid rgba(255,255,255,.15); border-top-color: #7B1FA2;
+  border-radius: 50%; animation: spin .7s linear infinite; margin-bottom: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Mobile ────────────────────────────────────── */
+@media (max-width: 768px) {
+  #title { font-size: 14px; }
+  #scan-selector { position: static; justify-content: center; margin-bottom: 6px; }
+  #header { text-align: center; }
+  #mode-toggle button { padding: 5px 12px; font-size: 10px; }
+  #controls { padding: 6px 12px; gap: 8px; }
+  #controls button { width: 40px; height: 40px; }
+  #views { gap: 4px; right: 6px; }
+  #views button { padding: 5px 8px; font-size: 10px; }
+  #hint { display: none; }
+  #volume-info { font-size: 9px; }
+}
+@media (max-width: 480px) {
+  #header { padding: 8px 8px 0; }
+  #title { font-size: 13px; }
+  #scan-selector button { padding: 4px 10px; font-size: 11px; }
+  #mode-toggle button { padding: 4px 10px; }
+  #views { top: auto; bottom: 70px; right: 6px; transform: none; }
+  .view-group-label { display: none; }
+  #controls { bottom: 10px; padding: 5px 10px; gap: 6px; }
+  #controls input[type=range] { width: 60px; }
+}
 </style>
 </head>
 <body>
 
-<div id="scan-selector"></div>
-
-<div id="overlay">
+<div id="header">
+  <div id="scan-selector"></div>
   <div id="title">Lung Volume 3D Viewer</div>
+  <div id="mode-toggle">
+    <button data-mode="normal" class="active">Normal Breathing</button>
+    <button data-mode="full">Full Range</button>
+  </div>
   <div id="state-label"></div>
   <div id="volume-info"></div>
 </div>
@@ -88,7 +142,7 @@ body { background: #0f0f23; overflow: hidden; font-family: system-ui, -apple-sys
 
 <div id="hint">Drag to rotate &middot; Scroll to zoom &middot; Space to pause</div>
 <div id="pbar"><div id="pfill"></div></div>
-<div id="loading"><div class="spinner"></div><br>Loading scan data&hellip;</div>
+<div id="loading"><div class="spinner"></div><br>Loading&hellip;</div>
 
 <script type="importmap">
 { "imports": {
@@ -100,7 +154,6 @@ body { background: #0f0f23; overflow: hidden; font-family: system-ui, -apple-sys
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// Available scans
 const SCANS = [
   { id: "603285", file: "data/603285.json" },
   { id: "537844", file: "data/537844.json" },
@@ -117,7 +170,6 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
-// Controls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
@@ -125,12 +177,12 @@ controls.autoRotate = false;
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x404060, 0.5));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
-keyLight.position.set(200, 300, 400); scene.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0x6666cc, 0.35);
-fillLight.position.set(-200, 50, -200); scene.add(fillLight);
-const rimLight = new THREE.DirectionalLight(0xcc6644, 0.2);
-rimLight.position.set(0, -200, 100); scene.add(rimLight);
+const kl = new THREE.DirectionalLight(0xffffff, 1.0);
+kl.position.set(200, 300, 400); scene.add(kl);
+const fl = new THREE.DirectionalLight(0x6666cc, 0.35);
+fl.position.set(-200, 50, -200); scene.add(fl);
+const rl = new THREE.DirectionalLight(0xcc6644, 0.2);
+rl.position.set(0, -200, 100); scene.add(rl);
 
 // Material
 const mat = new THREE.MeshPhongMaterial({
@@ -142,11 +194,12 @@ const mat = new THREE.MeshPhongMaterial({
 // State
 let lungMesh = null;
 let geometries = [];
-let frameLabels = [];
-let frameColors = [];
-let volumes = {};
+let allFrameLabels = [];
+let allFrameColors = [];
 let center = new THREE.Vector3();
-let camDist = 500; // updated on scan load
+let camDist = 500;
+let currentScanData = null;
+let currentMode = 'normal';
 let cur = 0, playing = true, speed = 1.0, acc = 0;
 const FRAME_DUR = 110;
 
@@ -163,14 +216,13 @@ let camTarget = null, camUpTarget = null;
 
 function setView(name) {
   const v = viewDefs[name]; if (!v) return;
-  // Always use initial zoom distance (100% size)
-  camTarget = new THREE.Vector3(v.pos[0]*camDist + center.x, v.pos[1]*camDist + center.y, v.pos[2]*camDist + center.z);
+  camTarget = new THREE.Vector3(
+    v.pos[0]*camDist + center.x, v.pos[1]*camDist + center.y, v.pos[2]*camDist + center.z);
   camUpTarget = new THREE.Vector3(...v.up);
 }
 
-document.querySelectorAll('[data-view]').forEach(btn => {
-  btn.addEventListener('click', () => setView(btn.dataset.view));
-});
+document.querySelectorAll('[data-view]').forEach(btn =>
+  btn.addEventListener('click', () => setView(btn.dataset.view)));
 
 // UI elements
 const btnPlay = document.getElementById('bp');
@@ -184,11 +236,11 @@ const elLoading = document.getElementById('loading');
 function updateFrame() {
   if (!geometries.length) return;
   lungMesh.geometry = geometries[cur];
-  elLabel.textContent = frameLabels[cur];
-  const c = frameColors[cur];
+  elLabel.textContent = allFrameLabels[cur];
+  const c = allFrameColors[cur];
   mat.color.setRGB(c[0], c[1], c[2]);
-  mat.emissive.setRGB(c[0] * 0.08, c[1] * 0.08, c[2] * 0.08);
-  const pct = cur / (geometries.length - 1) * 100;
+  mat.emissive.setRGB(c[0]*0.08, c[1]*0.08, c[2]*0.08);
+  const pct = cur / Math.max(geometries.length - 1, 1) * 100;
   elFill.style.width = pct + '%';
   elFill.style.background = 'rgb(' + Math.round(c[0]*255) + ',' +
     Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
@@ -196,117 +248,130 @@ function updateFrame() {
 
 btnPlay.onclick = () => { playing = !playing; btnPlay.innerHTML = playing ? '&#9208;' : '&#9654;'; };
 slSpeed.oninput = () => { speed = parseFloat(slSpeed.value); elSpeedVal.innerHTML = speed.toFixed(1) + '&times;'; };
-
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); btnPlay.click(); }
-  if (e.code === 'ArrowRight' && geometries.length) { cur = (cur + 1) % geometries.length; updateFrame(); }
-  if (e.code === 'ArrowLeft' && geometries.length) { cur = (cur - 1 + geometries.length) % geometries.length; updateFrame(); }
+  if (e.code === 'ArrowRight' && geometries.length) { cur = (cur+1) % geometries.length; updateFrame(); }
+  if (e.code === 'ArrowLeft' && geometries.length) { cur = (cur-1+geometries.length) % geometries.length; updateFrame(); }
 });
 
-// Build geometries from mesh data
-function buildGeometries(frames) {
+// Build geometry from frame data
+function buildGeom(fr) {
+  const g = new THREE.BufferGeometry();
+  const nv = fr.v.length, nf = fr.f.length;
+  const va = new Float32Array(nv*3), ia = new Uint32Array(nf*3);
+  for (let i=0; i<nv; i++) { va[i*3]=fr.v[i][0]; va[i*3+1]=fr.v[i][1]; va[i*3+2]=fr.v[i][2]; }
+  for (let i=0; i<nf; i++) { ia[i*3]=fr.f[i][0]; ia[i*3+1]=fr.f[i][1]; ia[i*3+2]=fr.f[i][2]; }
+  g.setAttribute('position', new THREE.BufferAttribute(va, 3));
+  g.setIndex(new THREE.BufferAttribute(ia, 1));
+  g.computeVertexNormals();
+  const pos = g.attributes.position;
+  let xn=Infinity, xx=-Infinity;
+  for (let i=0; i<pos.count; i++) { const x=pos.getX(i); if(x<xn) xn=x; if(x>xx) xx=x; }
+  const xr = xx-xn||1, vc = new Float32Array(pos.count*3);
+  for (let i=0; i<pos.count; i++) {
+    const t = (pos.getX(i)-xn)/xr;
+    vc[i*3]=0.88+0.12*(1-t); vc[i*3+1]=0.92; vc[i*3+2]=0.88+0.12*t;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(vc, 3));
+  return g;
+}
+
+// Assemble frames for mode from segment data
+function assembleMode(data, mode) {
+  const segs = data.segments;
+  // normal: TLC->FRC + FRC->TLC (segments 0 and 3)
+  // full:   TLC->FRC + FRC->RV + RV->FRC + FRC->TLC (all 4)
+  const indices = mode === 'normal' ? [0, 3] : [0, 1, 2, 3];
+  const frames = [], labels = [], colors = [];
+  for (const i of indices) {
+    frames.push(...segs[i].frames);
+    labels.push(...segs[i].labels);
+    colors.push(...segs[i].colors);
+  }
+  return { frames, labels, colors };
+}
+
+// Apply mode (rebuild geometries from cached scan data)
+function applyMode(mode) {
+  if (!currentScanData) return;
+  currentMode = mode;
+
   // Dispose old geometries
   geometries.forEach(g => g.dispose());
-  geometries = [];
 
-  return frames.map(fr => {
-    const g = new THREE.BufferGeometry();
-    const nv = fr.v.length, nf = fr.f.length;
-    const va = new Float32Array(nv * 3), ia = new Uint32Array(nf * 3);
-    for (let i = 0; i < nv; i++) { va[i*3]=fr.v[i][0]; va[i*3+1]=fr.v[i][1]; va[i*3+2]=fr.v[i][2]; }
-    for (let i = 0; i < nf; i++) { ia[i*3]=fr.f[i][0]; ia[i*3+1]=fr.f[i][1]; ia[i*3+2]=fr.f[i][2]; }
-    g.setAttribute('position', new THREE.BufferAttribute(va, 3));
-    g.setIndex(new THREE.BufferAttribute(ia, 1));
-    g.computeVertexNormals();
-    // Vertex colors: warm/cool gradient across left-right axis
-    const pos = g.attributes.position;
-    let xMin = Infinity, xMax = -Infinity;
-    for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); if (x < xMin) xMin = x; if (x > xMax) xMax = x; }
-    const xRange = xMax - xMin || 1;
-    const vc = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const t = (pos.getX(i) - xMin) / xRange;
-      vc[i*3]   = 0.88 + 0.12 * (1 - t);
-      vc[i*3+1] = 0.92;
-      vc[i*3+2] = 0.88 + 0.12 * t;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(vc, 3));
-    return g;
-  });
+  const assembled = assembleMode(currentScanData, mode);
+  geometries = assembled.frames.map(buildGeom);
+  allFrameLabels = assembled.labels;
+  allFrameColors = assembled.colors;
+
+  if (lungMesh) scene.remove(lungMesh);
+  lungMesh = new THREE.Mesh(geometries[0], mat);
+  scene.add(lungMesh);
+
+  cur = 0; acc = 0;
+  updateFrame();
+
+  // Update mode buttons
+  document.querySelectorAll('#mode-toggle button').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
 }
 
 // Load a scan
 const dataCache = {};
 async function loadScan(scanId) {
   elLoading.style.display = 'block';
-
   const scan = SCANS.find(s => s.id === scanId);
   if (!scan) return;
 
-  let data;
   if (dataCache[scanId]) {
-    data = dataCache[scanId];
+    currentScanData = dataCache[scanId];
   } else {
     const resp = await fetch(scan.file);
-    data = await resp.json();
-    dataCache[scanId] = data;
+    currentScanData = await resp.json();
+    dataCache[scanId] = currentScanData;
   }
 
-  // Build geometries
-  geometries = buildGeometries(data.frames);
-  frameLabels = data.labels;
-  frameColors = data.colors;
-  volumes = data.volumes || {};
-
-  // Update or create mesh
-  if (lungMesh) {
-    scene.remove(lungMesh);
-  }
-  lungMesh = new THREE.Mesh(geometries[0], mat);
-  scene.add(lungMesh);
+  // Apply current mode
+  applyMode(currentMode);
 
   // Fit camera — start at anterior view
   const bb = new THREE.Box3().setFromBufferAttribute(geometries[0].attributes.position);
   center = bb.getCenter(new THREE.Vector3());
-  const size = bb.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
+  const sz = bb.getSize(new THREE.Vector3());
+  const maxDim = Math.max(sz.x, sz.y, sz.z);
   camDist = maxDim / (2 * Math.tan(camera.fov * Math.PI / 360)) * 1.8;
-  camera.position.set(center.x, center.y + camDist, center.z);  // anterior view
+  camera.position.set(center.x, center.y + camDist, center.z);
   camera.up.set(0, 0, 1);
   controls.target.copy(center);
   controls.minDistance = maxDim * 0.3;
   controls.maxDistance = maxDim * 5;
   controls.update();
 
-  // Reset animation
-  cur = 0;
-  acc = 0;
-  updateFrame();
-
   // Volume info
-  const vols = Object.entries(volumes).map(([k,v]) => `${k}: ${v.toLocaleString()} mL`).join('  |  ');
-  elVolInfo.textContent = vols;
+  const v = currentScanData.volumes || {};
+  const parts = Object.entries(v).map(([k,val]) => `${k}: ${Number(val).toLocaleString()} mL`);
+  elVolInfo.textContent = parts.join('  |  ');
 
-  // Update title
   document.getElementById('title').textContent = `Scan ${scanId} \u2014 Lung Volume Animation`;
-
-  // Update selector buttons
-  document.querySelectorAll('#scan-selector button').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.scan === scanId);
-  });
+  document.querySelectorAll('#scan-selector button').forEach(b =>
+    b.classList.toggle('active', b.dataset.scan === scanId));
 
   elLoading.style.display = 'none';
 }
 
-// Build scan selector buttons
-const selectorEl = document.getElementById('scan-selector');
-SCANS.forEach(scan => {
+// Scan selector
+const selEl = document.getElementById('scan-selector');
+SCANS.forEach(s => {
   const btn = document.createElement('button');
-  btn.textContent = `Scan ${scan.id}`;
-  btn.dataset.scan = scan.id;
-  btn.addEventListener('click', () => loadScan(scan.id));
-  selectorEl.appendChild(btn);
+  btn.textContent = `Scan ${s.id}`;
+  btn.dataset.scan = s.id;
+  btn.addEventListener('click', () => loadScan(s.id));
+  selEl.appendChild(btn);
 });
+
+// Mode toggle
+document.querySelectorAll('#mode-toggle button').forEach(btn =>
+  btn.addEventListener('click', () => applyMode(btn.dataset.mode)));
 
 // Render loop
 let lastTime = performance.now();
@@ -316,10 +381,9 @@ let lastTime = performance.now();
   lastTime = now;
   if (playing && geometries.length) {
     acc += dt * speed;
-    if (acc >= FRAME_DUR) { acc -= FRAME_DUR; cur = (cur + 1) % geometries.length; updateFrame(); }
+    if (acc >= FRAME_DUR) { acc -= FRAME_DUR; cur = (cur+1) % geometries.length; updateFrame(); }
   }
   if (camTarget) {
-    // Lerp position then re-project onto sphere (arc transition, no zoom)
     camera.position.lerp(camTarget, 0.08);
     const offset = camera.position.clone().sub(controls.target).normalize().multiplyScalar(camDist);
     camera.position.copy(controls.target).add(offset);
