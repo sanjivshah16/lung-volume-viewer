@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lung Volume 3D Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0f0f23; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+
+#overlay { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; z-index: 10; }
+#title { text-align: center; padding: 14px 14px 6px; color: rgba(255,255,255,.85);
+  font-size: 16px; font-weight: 600; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+#state-label { text-align: center; color: rgba(255,255,255,.6); font-size: 13px; }
+#volume-info { text-align: center; color: rgba(255,255,255,.4); font-size: 11px; padding-top: 4px; }
+
+#scan-selector { position: absolute; top: 14px; left: 16px; z-index: 10;
+  display: flex; gap: 6px; }
+#scan-selector button { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.08); color: rgba(255,255,255,.6);
+  font-size: 12px; cursor: pointer; transition: all .2s;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+#scan-selector button:hover { background: rgba(255,255,255,.15); color: #fff; }
+#scan-selector button.active { background: rgba(123,31,162,.4); color: #fff;
+  border-color: rgba(123,31,162,.6); }
+
+#controls { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,.08); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px); padding: 8px 18px; border-radius: 20px; z-index: 10; }
+#controls button { width: 32px; height: 32px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.15); color: #fff; font-size: 14px; cursor: pointer;
+  transition: background .2s; }
+#controls button:hover { background: rgba(255,255,255,.25); }
+#controls input[type=range] { width: 80px; accent-color: #7B1FA2; }
+#controls label { color: rgba(255,255,255,.6); font-size: 11px; white-space: nowrap; }
+
+#views { position: absolute; top: 50%; right: 16px; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+#views button { padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.08); color: rgba(255,255,255,.6);
+  font-size: 11px; cursor: pointer; transition: all .2s; white-space: nowrap;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+#views button:hover { background: rgba(255,255,255,.18); color: #fff; }
+#views .view-group-label { color: rgba(255,255,255,.35); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 1px; text-align: center; padding-top: 4px; }
+
+#hint { position: absolute; bottom: 16px; right: 16px; color: rgba(255,255,255,.3);
+  font-size: 10px; pointer-events: none; z-index: 10; }
+#pbar { position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: rgba(255,255,255,.06); z-index: 10; }
+#pfill { height: 100%; width: 0; transition: width .08s linear; }
+
+#loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: rgba(255,255,255,.7); font-size: 14px; z-index: 20; text-align: center; }
+#loading .spinner { display: inline-block; width: 24px; height: 24px;
+  border: 3px solid rgba(255,255,255,.2); border-top-color: #7B1FA2;
+  border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="scan-selector"></div>
+
+<div id="overlay">
+  <div id="title">Lung Volume 3D Viewer</div>
+  <div id="state-label"></div>
+  <div id="volume-info"></div>
+</div>
+
+<div id="controls">
+  <button id="bp" title="Play/Pause (Space)">&#9208;</button>
+  <label>Speed</label>
+  <input type="range" id="sp" min="0.3" max="3" step="0.1" value="1">
+  <label id="sv">1.0&times;</label>
+</div>
+
+<div id="views">
+  <div class="view-group-label">Views</div>
+  <button data-view="anterior">Anterior</button>
+  <button data-view="posterior">Posterior</button>
+  <button data-view="superior">Superior</button>
+  <button data-view="inferior">Inferior</button>
+  <button data-view="right">Right</button>
+  <button data-view="left">Left</button>
+</div>
+
+<div id="hint">Drag to rotate &middot; Scroll to zoom &middot; Space to pause</div>
+<div id="pbar"><div id="pfill"></div></div>
+<div id="loading"><div class="spinner"></div><br>Loading scan data&hellip;</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// Available scans
+const SCANS = [
+  { id: "603285", file: "data/603285.json" },
+  { id: "537844", file: "data/537844.json" },
+];
+
+// Scene
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f0f23);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 5000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+document.body.appendChild(renderer.domElement);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.autoRotate = false;
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x404060, 0.5));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+keyLight.position.set(200, 300, 400); scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0x6666cc, 0.35);
+fillLight.position.set(-200, 50, -200); scene.add(fillLight);
+const rimLight = new THREE.DirectionalLight(0xcc6644, 0.2);
+rimLight.position.set(0, -200, 100); scene.add(rimLight);
+
+// Material
+const mat = new THREE.MeshPhongMaterial({
+  vertexColors: true, transparent: true, opacity: 0.78,
+  side: THREE.DoubleSide, shininess: 50,
+  specular: new THREE.Color(0x333355)
+});
+
+// State
+let lungMesh = null;
+let geometries = [];
+let frameLabels = [];
+let frameColors = [];
+let volumes = {};
+let center = new THREE.Vector3();
+let cur = 0, playing = true, speed = 1.0, acc = 0;
+const FRAME_DUR = 110;
+
+// Fixed camera views
+const viewDefs = {
+  anterior:  { pos: [0,  1, 0], up: [0, 0, 1] },
+  posterior: { pos: [0, -1, 0], up: [0, 0, 1] },
+  superior:  { pos: [0, 0,  1], up: [0, 1, 0] },
+  inferior:  { pos: [0, 0, -1], up: [0, 1, 0] },
+  right:     { pos: [1,  0, 0], up: [0, 0, 1] },
+  left:      { pos: [-1, 0, 0], up: [0, 0, 1] },
+};
+let camTarget = null, camUpTarget = null;
+
+function setView(name) {
+  const v = viewDefs[name]; if (!v) return;
+  const d = camera.position.distanceTo(controls.target);
+  camTarget = new THREE.Vector3(v.pos[0]*d + center.x, v.pos[1]*d + center.y, v.pos[2]*d + center.z);
+  camUpTarget = new THREE.Vector3(...v.up);
+}
+
+document.querySelectorAll('[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => setView(btn.dataset.view));
+});
+
+// UI elements
+const btnPlay = document.getElementById('bp');
+const elLabel = document.getElementById('state-label');
+const elFill = document.getElementById('pfill');
+const elSpeedVal = document.getElementById('sv');
+const slSpeed = document.getElementById('sp');
+const elVolInfo = document.getElementById('volume-info');
+const elLoading = document.getElementById('loading');
+
+function updateFrame() {
+  if (!geometries.length) return;
+  lungMesh.geometry = geometries[cur];
+  elLabel.textContent = frameLabels[cur];
+  const c = frameColors[cur];
+  mat.color.setRGB(c[0], c[1], c[2]);
+  mat.emissive.setRGB(c[0] * 0.08, c[1] * 0.08, c[2] * 0.08);
+  const pct = cur / (geometries.length - 1) * 100;
+  elFill.style.width = pct + '%';
+  elFill.style.background = 'rgb(' + Math.round(c[0]*255) + ',' +
+    Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
+}
+
+btnPlay.onclick = () => { playing = !playing; btnPlay.innerHTML = playing ? '&#9208;' : '&#9654;'; };
+slSpeed.oninput = () => { speed = parseFloat(slSpeed.value); elSpeedVal.innerHTML = speed.toFixed(1) + '&times;'; };
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); btnPlay.click(); }
+  if (e.code === 'ArrowRight' && geometries.length) { cur = (cur + 1) % geometries.length; updateFrame(); }
+  if (e.code === 'ArrowLeft' && geometries.length) { cur = (cur - 1 + geometries.length) % geometries.length; updateFrame(); }
+});
+
+// Build geometries from mesh data
+function buildGeometries(frames) {
+  // Dispose old geometries
+  geometries.forEach(g => g.dispose());
+  geometries = [];
+
+  return frames.map(fr => {
+    const g = new THREE.BufferGeometry();
+    const nv = fr.v.length, nf = fr.f.length;
+    const va = new Float32Array(nv * 3), ia = new Uint32Array(nf * 3);
+    for (let i = 0; i < nv; i++) { va[i*3]=fr.v[i][0]; va[i*3+1]=fr.v[i][1]; va[i*3+2]=fr.v[i][2]; }
+    for (let i = 0; i < nf; i++) { ia[i*3]=fr.f[i][0]; ia[i*3+1]=fr.f[i][1]; ia[i*3+2]=fr.f[i][2]; }
+    g.setAttribute('position', new THREE.BufferAttribute(va, 3));
+    g.setIndex(new THREE.BufferAttribute(ia, 1));
+    g.computeVertexNormals();
+    // Vertex colors: warm/cool gradient across left-right axis
+    const pos = g.attributes.position;
+    let xMin = Infinity, xMax = -Infinity;
+    for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); if (x < xMin) xMin = x; if (x > xMax) xMax = x; }
+    const xRange = xMax - xMin || 1;
+    const vc = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const t = (pos.getX(i) - xMin) / xRange;
+      vc[i*3]   = 0.88 + 0.12 * (1 - t);
+      vc[i*3+1] = 0.92;
+      vc[i*3+2] = 0.88 + 0.12 * t;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(vc, 3));
+    return g;
+  });
+}
+
+// Load a scan
+const dataCache = {};
+async function loadScan(scanId) {
+  elLoading.style.display = 'block';
+
+  const scan = SCANS.find(s => s.id === scanId);
+  if (!scan) return;
+
+  let data;
+  if (dataCache[scanId]) {
+    data = dataCache[scanId];
+  } else {
+    const resp = await fetch(scan.file);
+    data = await resp.json();
+    dataCache[scanId] = data;
+  }
+
+  // Build geometries
+  geometries = buildGeometries(data.frames);
+  frameLabels = data.labels;
+  frameColors = data.colors;
+  volumes = data.volumes || {};
+
+  // Update or create mesh
+  if (lungMesh) {
+    scene.remove(lungMesh);
+  }
+  lungMesh = new THREE.Mesh(geometries[0], mat);
+  scene.add(lungMesh);
+
+  // Fit camera
+  const bb = new THREE.Box3().setFromBufferAttribute(geometries[0].attributes.position);
+  center = bb.getCenter(new THREE.Vector3());
+  const size = bb.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const camDist = maxDim / (2 * Math.tan(camera.fov * Math.PI / 360)) * 1.8;
+  camera.position.set(camDist * 0.4, camDist * 0.25, camDist);
+  camera.up.set(0, 0, 1);
+  controls.target.copy(center);
+  controls.minDistance = maxDim * 0.3;
+  controls.maxDistance = maxDim * 5;
+  controls.update();
+
+  // Reset animation
+  cur = 0;
+  acc = 0;
+  updateFrame();
+
+  // Volume info
+  const vols = Object.entries(volumes).map(([k,v]) => `${k}: ${v.toLocaleString()} mL`).join('  |  ');
+  elVolInfo.textContent = vols;
+
+  // Update title
+  document.getElementById('title').textContent = `Scan ${scanId} \u2014 Lung Volume Animation`;
+
+  // Update selector buttons
+  document.querySelectorAll('#scan-selector button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scan === scanId);
+  });
+
+  elLoading.style.display = 'none';
+}
+
+// Build scan selector buttons
+const selectorEl = document.getElementById('scan-selector');
+SCANS.forEach(scan => {
+  const btn = document.createElement('button');
+  btn.textContent = `Scan ${scan.id}`;
+  btn.dataset.scan = scan.id;
+  btn.addEventListener('click', () => loadScan(scan.id));
+  selectorEl.appendChild(btn);
+});
+
+// Render loop
+let lastTime = performance.now();
+(function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now(), dt = now - lastTime;
+  lastTime = now;
+  if (playing && geometries.length) {
+    acc += dt * speed;
+    if (acc >= FRAME_DUR) { acc -= FRAME_DUR; cur = (cur + 1) % geometries.length; updateFrame(); }
+  }
+  if (camTarget) {
+    camera.position.lerp(camTarget, 0.08);
+    camera.up.lerp(camUpTarget, 0.08);
+    if (camera.position.distanceTo(camTarget) < 0.5) {
+      camera.position.copy(camTarget); camera.up.copy(camUpTarget);
+      camTarget = null; camUpTarget = null;
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// Load first scan
+loadScan(SCANS[0].id);
+</script>
+</body>
+</html>
