@@ -201,7 +201,7 @@ let camDist = 500;
 let currentScanData = null;
 let currentMode = 'normal';
 let cur = 0, playing = true, speed = 1.0, acc = 0;
-const FRAME_DUR = 110;
+const FRAME_DUR = 180;
 
 // Fixed camera views
 const viewDefs = {
@@ -212,13 +212,60 @@ const viewDefs = {
   right:     { pos: [1,  0, 0], up: [0, 0, 1] },
   left:      { pos: [-1, 0, 0], up: [0, 0, 1] },
 };
-let camTarget = null, camUpTarget = null;
+
+// View transition state — slerp-based with explicit progress
+let viewAnim = null; // {startDir, endDir, startUp, endUp, t}
 
 function setView(name) {
   const v = viewDefs[name]; if (!v) return;
-  camTarget = new THREE.Vector3(
-    v.pos[0]*camDist + center.x, v.pos[1]*camDist + center.y, v.pos[2]*camDist + center.z);
-  camUpTarget = new THREE.Vector3(...v.up);
+  const startDir = camera.position.clone().sub(controls.target).normalize();
+  const endDir = new THREE.Vector3(...v.pos).normalize();
+  viewAnim = {
+    startDir, endDir,
+    startUp: camera.up.clone(),
+    endUp: new THREE.Vector3(...v.up),
+    t: 0,
+    // For anti-parallel case, precompute a perpendicular rotation axis
+    axis: null, totalAngle: 0
+  };
+  const dot = startDir.dot(endDir);
+  const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+  viewAnim.totalAngle = angle;
+  if (dot < -0.99) {
+    // Nearly anti-parallel: find perpendicular axis
+    const ax = new THREE.Vector3();
+    if (Math.abs(startDir.x) < 0.9) ax.set(1, 0, 0);
+    else ax.set(0, 1, 0);
+    ax.crossVectors(startDir, ax).normalize();
+    viewAnim.axis = ax;
+  }
+}
+
+function updateViewTransition() {
+  if (!viewAnim) return;
+  viewAnim.t = Math.min(viewAnim.t + 0.035, 1);
+  const t = viewAnim.t;
+  // easeInOutQuad
+  const ease = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+
+  let newDir;
+  if (viewAnim.totalAngle < 0.001) {
+    newDir = viewAnim.endDir.clone();
+  } else if (viewAnim.axis) {
+    // Anti-parallel: rotate around precomputed perpendicular axis
+    const q = new THREE.Quaternion().setFromAxisAngle(viewAnim.axis, viewAnim.totalAngle * ease);
+    newDir = viewAnim.startDir.clone().applyQuaternion(q);
+  } else {
+    // Normal case: quaternion slerp
+    const q = new THREE.Quaternion().setFromUnitVectors(viewAnim.startDir, viewAnim.endDir);
+    const sq = new THREE.Quaternion().identity().slerp(q, ease);
+    newDir = viewAnim.startDir.clone().applyQuaternion(sq);
+  }
+
+  camera.position.copy(controls.target).addScaledVector(newDir, camDist);
+  camera.up.copy(viewAnim.startUp).lerp(viewAnim.endUp, ease);
+
+  if (viewAnim.t >= 1) viewAnim = null;
 }
 
 document.querySelectorAll('[data-view]').forEach(btn =>
@@ -277,11 +324,10 @@ function buildGeom(fr) {
 }
 
 // Assemble frames for mode from segment data
+// Segments: 0=TLC->FRC, 1=FRC->TLC, 2=TLC->RV, 3=RV->TLC
 function assembleMode(data, mode) {
   const segs = data.segments;
-  // normal: TLC->FRC + FRC->TLC (segments 0 and 3)
-  // full:   TLC->FRC + FRC->RV + RV->FRC + FRC->TLC (all 4)
-  const indices = mode === 'normal' ? [0, 3] : [0, 1, 2, 3];
+  const indices = mode === 'normal' ? [0, 1] : [2, 3];
   const frames = [], labels = [], colors = [];
   for (const i of indices) {
     frames.push(...segs[i].frames);
@@ -383,16 +429,7 @@ let lastTime = performance.now();
     acc += dt * speed;
     if (acc >= FRAME_DUR) { acc -= FRAME_DUR; cur = (cur+1) % geometries.length; updateFrame(); }
   }
-  if (camTarget) {
-    camera.position.lerp(camTarget, 0.08);
-    const offset = camera.position.clone().sub(controls.target).normalize().multiplyScalar(camDist);
-    camera.position.copy(controls.target).add(offset);
-    camera.up.lerp(camUpTarget, 0.08);
-    if (camera.position.distanceTo(camTarget) < 1) {
-      camera.position.copy(camTarget); camera.up.copy(camUpTarget);
-      camTarget = null; camUpTarget = null;
-    }
-  }
+  updateViewTransition();
   controls.update();
   renderer.render(scene, camera);
 })();
