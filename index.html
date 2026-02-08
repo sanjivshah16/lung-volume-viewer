@@ -146,6 +146,7 @@ let frameLabels = [];
 let frameColors = [];
 let volumes = {};
 let center = new THREE.Vector3();
+let camDist = 500; // updated on scan load
 let cur = 0, playing = true, speed = 1.0, acc = 0;
 const FRAME_DUR = 110;
 
@@ -153,8 +154,8 @@ const FRAME_DUR = 110;
 const viewDefs = {
   anterior:  { pos: [0,  1, 0], up: [0, 0, 1] },
   posterior: { pos: [0, -1, 0], up: [0, 0, 1] },
-  superior:  { pos: [0, 0,  1], up: [0, 1, 0] },
-  inferior:  { pos: [0, 0, -1], up: [0, 1, 0] },
+  superior:  { pos: [0, 0,  1], up: [0, -1, 0] },
+  inferior:  { pos: [0, 0, -1], up: [0, -1, 0] },
   right:     { pos: [1,  0, 0], up: [0, 0, 1] },
   left:      { pos: [-1, 0, 0], up: [0, 0, 1] },
 };
@@ -162,8 +163,8 @@ let camTarget = null, camUpTarget = null;
 
 function setView(name) {
   const v = viewDefs[name]; if (!v) return;
-  const d = camera.position.distanceTo(controls.target);
-  camTarget = new THREE.Vector3(v.pos[0]*d + center.x, v.pos[1]*d + center.y, v.pos[2]*d + center.z);
+  // Always use initial zoom distance (100% size)
+  camTarget = new THREE.Vector3(v.pos[0]*camDist + center.x, v.pos[1]*camDist + center.y, v.pos[2]*camDist + center.z);
   camUpTarget = new THREE.Vector3(...v.up);
 }
 
@@ -264,13 +265,13 @@ async function loadScan(scanId) {
   lungMesh = new THREE.Mesh(geometries[0], mat);
   scene.add(lungMesh);
 
-  // Fit camera
+  // Fit camera — start at anterior view
   const bb = new THREE.Box3().setFromBufferAttribute(geometries[0].attributes.position);
   center = bb.getCenter(new THREE.Vector3());
   const size = bb.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  const camDist = maxDim / (2 * Math.tan(camera.fov * Math.PI / 360)) * 1.8;
-  camera.position.set(camDist * 0.4, camDist * 0.25, camDist);
+  camDist = maxDim / (2 * Math.tan(camera.fov * Math.PI / 360)) * 1.8;
+  camera.position.set(center.x, center.y + camDist, center.z);  // anterior view
   camera.up.set(0, 0, 1);
   controls.target.copy(center);
   controls.minDistance = maxDim * 0.3;
@@ -318,9 +319,12 @@ let lastTime = performance.now();
     if (acc >= FRAME_DUR) { acc -= FRAME_DUR; cur = (cur + 1) % geometries.length; updateFrame(); }
   }
   if (camTarget) {
+    // Lerp position then re-project onto sphere (arc transition, no zoom)
     camera.position.lerp(camTarget, 0.08);
+    const offset = camera.position.clone().sub(controls.target).normalize().multiplyScalar(camDist);
+    camera.position.copy(controls.target).add(offset);
     camera.up.lerp(camUpTarget, 0.08);
-    if (camera.position.distanceTo(camTarget) < 0.5) {
+    if (camera.position.distanceTo(camTarget) < 1) {
       camera.position.copy(camTarget); camera.up.copy(camUpTarget);
       camTarget = null; camUpTarget = null;
     }
