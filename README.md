@@ -4,18 +4,20 @@ Interactive three.js visualization of lung volume changes across breathing state
 
 ## Features
 
-- **Animated breathing cycle**: TLC &rarr; FRC &rarr; RV &rarr; FRC &rarr; TLC with smooth SDF-interpolated morphing
+- **Two animation modes**: Normal Breathing (TLC &harr; FRC) and Full Range (TLC &harr; RV)
+- **Color-coded states**: TLC (red) &rarr; purple &rarr; FRC/RV (blue) with smooth gradient
 - **Interactive 3D**: Click and drag to rotate, scroll to zoom
 - **Fixed anatomical views**: Anterior, Posterior, Superior, Inferior, Right, Left
 - **Multi-scan support**: Switch between patient scans with cached loading
 - **Playback controls**: Play/pause, adjustable speed (0.3x&ndash;3x), keyboard shortcuts (Space, arrow keys)
+- **Mobile responsive**: Touch-friendly controls, adaptive layout
 
 ## How it works
 
 1. Lung masks (from [lungmask](https://github.com/JoHof/lungmask) R231 model) are loaded for each breathing state
 2. Signed distance fields (SDFs) are computed and smoothly interpolated between states
 3. Marching cubes extracts mesh surfaces at each interpolation step
-4. Pre-computed mesh keyframes are embedded as JSON and rendered with three.js
+4. Pre-computed mesh keyframes are organized as 4 segments (TLC&rarr;FRC, FRC&rarr;RV, RV&rarr;FRC, FRC&rarr;TLC) and rendered with three.js
 
 ## Usage
 
