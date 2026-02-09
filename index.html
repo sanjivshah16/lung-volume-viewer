@@ -155,8 +155,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const SCANS = [
-  { id: "603285", file: "data/603285.json" },
-  { id: "537844", file: "data/537844.json" },
+  { id: "603285", file: "data/603285.json.gz" },
+  { id: "537844", file: "data/537844.json.gz" },
 ];
 
 // Scene
@@ -213,29 +213,18 @@ const viewDefs = {
   left:      { pos: [-1, 0, 0], up: [0, 0, 1] },
 };
 
-// View transition state — slerp-based with explicit progress
-let viewAnim = null; // {startDir, endDir, startUp, endUp, t}
-
+let viewAnim = null;
 function setView(name) {
   const v = viewDefs[name]; if (!v) return;
   const startDir = camera.position.clone().sub(controls.target).normalize();
   const endDir = new THREE.Vector3(...v.pos).normalize();
-  viewAnim = {
-    startDir, endDir,
-    startUp: camera.up.clone(),
-    endUp: new THREE.Vector3(...v.up),
-    t: 0,
-    // For anti-parallel case, precompute a perpendicular rotation axis
-    axis: null, totalAngle: 0
-  };
+  viewAnim = { startDir, endDir, startUp: camera.up.clone(),
+    endUp: new THREE.Vector3(...v.up), t: 0, axis: null, totalAngle: 0 };
   const dot = startDir.dot(endDir);
-  const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-  viewAnim.totalAngle = angle;
+  viewAnim.totalAngle = Math.acos(Math.max(-1, Math.min(1, dot)));
   if (dot < -0.99) {
-    // Nearly anti-parallel: find perpendicular axis
     const ax = new THREE.Vector3();
-    if (Math.abs(startDir.x) < 0.9) ax.set(1, 0, 0);
-    else ax.set(0, 1, 0);
+    if (Math.abs(startDir.x) < 0.9) ax.set(1, 0, 0); else ax.set(0, 1, 0);
     ax.crossVectors(startDir, ax).normalize();
     viewAnim.axis = ax;
   }
@@ -245,26 +234,20 @@ function updateViewTransition() {
   if (!viewAnim) return;
   viewAnim.t = Math.min(viewAnim.t + 0.035, 1);
   const t = viewAnim.t;
-  // easeInOutQuad
   const ease = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
-
   let newDir;
   if (viewAnim.totalAngle < 0.001) {
     newDir = viewAnim.endDir.clone();
   } else if (viewAnim.axis) {
-    // Anti-parallel: rotate around precomputed perpendicular axis
     const q = new THREE.Quaternion().setFromAxisAngle(viewAnim.axis, viewAnim.totalAngle * ease);
     newDir = viewAnim.startDir.clone().applyQuaternion(q);
   } else {
-    // Normal case: quaternion slerp
     const q = new THREE.Quaternion().setFromUnitVectors(viewAnim.startDir, viewAnim.endDir);
     const sq = new THREE.Quaternion().identity().slerp(q, ease);
     newDir = viewAnim.startDir.clone().applyQuaternion(sq);
   }
-
   camera.position.copy(controls.target).addScaledVector(newDir, camDist);
   camera.up.copy(viewAnim.startUp).lerp(viewAnim.endUp, ease);
-
   if (viewAnim.t >= 1) viewAnim = null;
 }
 
@@ -301,21 +284,20 @@ document.addEventListener('keydown', e => {
   if (e.code === 'ArrowLeft' && geometries.length) { cur = (cur-1+geometries.length) % geometries.length; updateFrame(); }
 });
 
-// Build geometry from frame data
-function buildGeom(fr) {
+// Build geometry from flat-array frame data (vertices scaled by VS)
+function buildGeom(fr, vs) {
   const g = new THREE.BufferGeometry();
-  const nv = fr.v.length, nf = fr.f.length;
-  const va = new Float32Array(nv*3), ia = new Uint32Array(nf*3);
-  for (let i=0; i<nv; i++) { va[i*3]=fr.v[i][0]; va[i*3+1]=fr.v[i][1]; va[i*3+2]=fr.v[i][2]; }
-  for (let i=0; i<nf; i++) { ia[i*3]=fr.f[i][0]; ia[i*3+1]=fr.f[i][1]; ia[i*3+2]=fr.f[i][2]; }
+  const va = Float32Array.from(fr.v, x => x * vs);
+  const ia = new Uint32Array(fr.f);
   g.setAttribute('position', new THREE.BufferAttribute(va, 3));
   g.setIndex(new THREE.BufferAttribute(ia, 1));
   g.computeVertexNormals();
   const pos = g.attributes.position;
+  const nv = pos.count;
   let xn=Infinity, xx=-Infinity;
-  for (let i=0; i<pos.count; i++) { const x=pos.getX(i); if(x<xn) xn=x; if(x>xx) xx=x; }
-  const xr = xx-xn||1, vc = new Float32Array(pos.count*3);
-  for (let i=0; i<pos.count; i++) {
+  for (let i=0; i<nv; i++) { const x=pos.getX(i); if(x<xn) xn=x; if(x>xx) xx=x; }
+  const xr = xx-xn||1, vc = new Float32Array(nv*3);
+  for (let i=0; i<nv; i++) {
     const t = (pos.getX(i)-xn)/xr;
     vc[i*3]=0.88+0.12*(1-t); vc[i*3+1]=0.92; vc[i*3+2]=0.88+0.12*t;
   }
@@ -323,7 +305,6 @@ function buildGeom(fr) {
   return g;
 }
 
-// Assemble frames for mode from segment data
 // Segments: 0=TLC->FRC, 1=FRC->TLC, 2=TLC->RV, 3=RV->TLC
 function assembleMode(data, mode) {
   const segs = data.segments;
@@ -337,32 +318,25 @@ function assembleMode(data, mode) {
   return { frames, labels, colors };
 }
 
-// Apply mode (rebuild geometries from cached scan data)
 function applyMode(mode) {
   if (!currentScanData) return;
   currentMode = mode;
-
-  // Dispose old geometries
   geometries.forEach(g => g.dispose());
-
+  const vs = currentScanData.vs || 1;
   const assembled = assembleMode(currentScanData, mode);
-  geometries = assembled.frames.map(buildGeom);
+  geometries = assembled.frames.map(fr => buildGeom(fr, vs));
   allFrameLabels = assembled.labels;
   allFrameColors = assembled.colors;
-
   if (lungMesh) scene.remove(lungMesh);
   lungMesh = new THREE.Mesh(geometries[0], mat);
   scene.add(lungMesh);
-
   cur = 0; acc = 0;
   updateFrame();
-
-  // Update mode buttons
   document.querySelectorAll('#mode-toggle button').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === mode));
 }
 
-// Load a scan
+// Load scan — fetch .json.gz, decompress in browser
 const dataCache = {};
 async function loadScan(scanId) {
   elLoading.style.display = 'block';
@@ -373,11 +347,11 @@ async function loadScan(scanId) {
     currentScanData = dataCache[scanId];
   } else {
     const resp = await fetch(scan.file);
-    currentScanData = await resp.json();
+    const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
+    currentScanData = JSON.parse(await new Response(stream).text());
     dataCache[scanId] = currentScanData;
   }
 
-  // Apply current mode
   applyMode(currentMode);
 
   // Fit camera — start at anterior view
@@ -393,7 +367,6 @@ async function loadScan(scanId) {
   controls.maxDistance = maxDim * 5;
   controls.update();
 
-  // Volume info
   const v = currentScanData.volumes || {};
   const parts = Object.entries(v).map(([k,val]) => `${k}: ${Number(val).toLocaleString()} mL`);
   elVolInfo.textContent = parts.join('  |  ');
@@ -440,7 +413,6 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// Load first scan
 loadScan(SCANS[0].id);
 </script>
 </body>
